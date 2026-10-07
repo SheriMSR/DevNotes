@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import type { Page, Block, BlockType, LanguageId, AppLanguage } from '../../types';
 import { BlockItem } from './BlockItem';
 import { SlashMenu, type SlashMenuItem, getSlashMenuItems } from './SlashMenu';
-import { BlockActionMenu } from './BlockActionMenu';
+import { BlockActionMenu, TURN_OPTIONS } from './BlockActionMenu';
 import { t } from '../../i18n/translations';
 import { 
   Plus, 
@@ -18,10 +18,9 @@ import {
   Trash2,
   Undo2,
   Redo2,
-  ArrowUp,
-  ArrowDown,
   Copy,
-  Sparkles
+  Layers,
+  Type
 } from 'lucide-react';
 
 interface NotionEditorProps {
@@ -1094,7 +1093,11 @@ export const NotionEditor: React.FC<NotionEditorProps> = ({
   const [selectedBlockIds, setSelectedBlockIds] = useState<string[]>([]);
   const [anchorBlockId, setAnchorBlockId] = useState<string | null>(null);
   const [isBatchTurnIntoOpen, setIsBatchTurnIntoOpen] = useState<boolean>(false);
+  const [marqueeBox, setMarqueeBox] = useState<{ startX: number; startY: number; currentX: number; currentY: number } | null>(null);
   const batchToolbarRef = useRef<HTMLDivElement>(null);
+  const mouseDownRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const dragStartBlockIdRef = useRef<string | null>(null);
+  const isCrossBlockSelectingRef = useRef<boolean>(false);
 
   // Flat list of all block IDs in document tree order
   const getAllBlockIdsInOrder = useCallback((blocks: Block[]): string[] => {
@@ -1109,6 +1112,34 @@ export const NotionEditor: React.FC<NotionEditorProps> = ({
     }
     traverse(blocks);
     return ids;
+  }, []);
+
+  const getBlockIdAtY = useCallback((clientY: number): string | null => {
+    if (!editorContainerRef.current) return null;
+    const blockElements = Array.from(
+      editorContainerRef.current.querySelectorAll<HTMLElement>('.block-draggable-wrapper[data-block-id]')
+    );
+    if (blockElements.length === 0) return null;
+
+    for (const el of blockElements) {
+      const r = el.getBoundingClientRect();
+      if (clientY >= r.top && clientY <= r.bottom) {
+        return el.getAttribute('data-block-id');
+      }
+    }
+
+    let closestId: string | null = null;
+    let minDiff = Infinity;
+    for (const el of blockElements) {
+      const r = el.getBoundingClientRect();
+      const midY = (r.top + r.bottom) / 2;
+      const diff = Math.abs(clientY - midY);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestId = el.getAttribute('data-block-id');
+      }
+    }
+    return closestId;
   }, []);
 
   // Filter out block IDs whose ancestor is already in the selected list (prevents duplication of child items)
@@ -1257,7 +1288,7 @@ export const NotionEditor: React.FC<NotionEditorProps> = ({
 
     let updated = deleteFromTree(page.blocks);
     if (updated.length === 0) {
-      updated = [createNewBlock('paragraph')];
+      updated = [createNewBlock('text')];
     }
 
     onUpdatePage({ ...page, blocks: updated, updatedAt: Date.now() });
@@ -1309,7 +1340,7 @@ export const NotionEditor: React.FC<NotionEditorProps> = ({
             ...b,
             type: newType,
             calloutMeta: newType === 'callout' ? (b.calloutMeta || { variant: 'tip', title: isEn ? 'Tip' : 'Ghi chú' }) : b.calloutMeta,
-            todoMeta: newType === 'todo' ? (b.todoMeta || { checked: false }) : b.todoMeta,
+            checked: newType === 'todo' ? (b.checked ?? false) : b.checked,
           };
         }
         if (updated.children && updated.children.length > 0) {
@@ -1349,58 +1380,133 @@ export const NotionEditor: React.FC<NotionEditorProps> = ({
     setAnchorBlockId(targetId);
   }, []);
 
-  const handleEditorMouseUp = useCallback(() => {
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
-    const range = sel.getRangeAt(0);
-
-    if (!editorContainerRef.current) return;
-    const blockElements = Array.from(
-      editorContainerRef.current.querySelectorAll<HTMLElement>('.block-draggable-wrapper[data-block-id]')
-    );
-
-    const intersecting: string[] = [];
-    for (const el of blockElements) {
-      try {
-        if (range.intersectsNode(el)) {
-          const bId = el.getAttribute('data-block-id');
-          if (bId) intersecting.push(bId);
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    if (intersecting.length > 1) {
-      setSelectedBlockIds(intersecting);
-      setAnchorBlockId(intersecting[0]);
-      sel.removeAllRanges();
-    }
-  }, []);
-
   const handleEditorMouseDown = useCallback((e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
-    if (target.closest('.batch-selection-toolbar') || target.closest('.block-action-menu-popover')) {
+    if (
+      target.closest('.batch-selection-toolbar') || 
+      target.closest('.block-action-menu-popover') ||
+      target.closest('.tag-picker-popover') ||
+      target.closest('.slash-menu-dropdown') ||
+      target.closest('.btn-add-block-dropdown') ||
+      target.closest('.block-picker-popover')
+    ) {
       return;
     }
-    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+
+    const clickedBlockWrapper = target.closest<HTMLElement>('.block-draggable-wrapper[data-block-id]');
+    const clickedId = clickedBlockWrapper?.getAttribute('data-block-id');
+
+    // Modifiers for click selection
+    if (e.shiftKey && clickedId) {
+      e.preventDefault();
+      handleRangeSelect(clickedId);
       return;
     }
-    if (target.closest('.block-drag-gutter')) {
+    if ((e.metaKey || e.ctrlKey) && clickedId) {
+      e.preventDefault();
+      handleToggleSelect(clickedId);
       return;
     }
+
+    // Record mousedown point
+    mouseDownRef.current = { x: e.clientX, y: e.clientY, time: Date.now() };
+    dragStartBlockIdRef.current = clickedId || null;
+    isCrossBlockSelectingRef.current = false;
+
+    // Deselect if clicking on empty space or clicking another block outside existing selection
     if (selectedBlockIds.length > 0) {
-      const clickedBlockWrapper = target.closest<HTMLElement>('.block-draggable-wrapper[data-block-id]');
-      const clickedId = clickedBlockWrapper?.getAttribute('data-block-id');
       if (!clickedId || !selectedBlockIds.includes(clickedId)) {
         setSelectedBlockIds([]);
       }
     }
-  }, [selectedBlockIds]);
+  }, [selectedBlockIds, handleRangeSelect, handleToggleSelect]);
 
-  // Global mouseup listener for smooth drag-selection across editor blocks
+  // Global mousemove and mouseup listeners for smooth drag-selection across editor blocks
   useEffect(() => {
+    const handleDocumentMouseMove = (e: MouseEvent) => {
+      if (!mouseDownRef.current) return;
+      const dx = e.clientX - mouseDownRef.current.x;
+      const dy = e.clientY - mouseDownRef.current.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 6) return;
+
+      // Case 1: Drag started on or inside a block
+      if (dragStartBlockIdRef.current) {
+        const elUnder = document.elementFromPoint(e.clientX, e.clientY);
+        const currBlockEl = elUnder?.closest<HTMLElement>('.block-draggable-wrapper[data-block-id]');
+        let currBlockId = currBlockEl?.getAttribute('data-block-id') || null;
+
+        if (!currBlockId) {
+          currBlockId = getBlockIdAtY(e.clientY);
+        }
+
+        if (isCrossBlockSelectingRef.current || (currBlockId && currBlockId !== dragStartBlockIdRef.current)) {
+          isCrossBlockSelectingRef.current = true;
+          window.getSelection()?.removeAllRanges();
+          if (document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur();
+          }
+
+          if (currBlockId) {
+            const allIds = getAllBlockIdsInOrder(page.blocks);
+            const idx1 = allIds.indexOf(dragStartBlockIdRef.current);
+            const idx2 = allIds.indexOf(currBlockId);
+            if (idx1 !== -1 && idx2 !== -1) {
+              const start = Math.min(idx1, idx2);
+              const end = Math.max(idx1, idx2);
+              setSelectedBlockIds(allIds.slice(start, end + 1));
+              setAnchorBlockId(dragStartBlockIdRef.current);
+            }
+          }
+        }
+        return;
+      }
+
+      // Case 2: Drag started on empty space (gutter/margin/padding) -> Marquee Box Selection
+      if (editorContainerRef.current) {
+        const boxLeft = Math.min(mouseDownRef.current.x, e.clientX);
+        const boxRight = Math.max(mouseDownRef.current.x, e.clientX);
+        const boxTop = Math.min(mouseDownRef.current.y, e.clientY);
+        const boxBottom = Math.max(mouseDownRef.current.y, e.clientY);
+
+        setMarqueeBox({
+          startX: mouseDownRef.current.x,
+          startY: mouseDownRef.current.y,
+          currentX: e.clientX,
+          currentY: e.clientY,
+        });
+
+        const blockEls = Array.from(
+          editorContainerRef.current.querySelectorAll<HTMLElement>('.block-draggable-wrapper[data-block-id]')
+        );
+        const intersecting: string[] = [];
+        for (const el of blockEls) {
+          const r = el.getBoundingClientRect();
+          const overlapsX = boxLeft <= r.right && boxRight >= r.left;
+          const overlapsY = boxTop <= r.bottom && boxBottom >= r.top;
+          if (overlapsX && overlapsY) {
+            const bId = el.getAttribute('data-block-id');
+            if (bId) intersecting.push(bId);
+          }
+        }
+        if (intersecting.length > 0) {
+          setSelectedBlockIds(intersecting);
+          setAnchorBlockId(intersecting[0]);
+          window.getSelection()?.removeAllRanges();
+        }
+      }
+    };
+
     const handleDocumentMouseUp = () => {
+      if (isCrossBlockSelectingRef.current) {
+        window.getSelection()?.removeAllRanges();
+      }
+      mouseDownRef.current = null;
+      dragStartBlockIdRef.current = null;
+      isCrossBlockSelectingRef.current = false;
+      setMarqueeBox(null);
+
+      // Support native text selection crossing multiple blocks
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
       const range = sel.getRangeAt(0);
@@ -1429,9 +1535,13 @@ export const NotionEditor: React.FC<NotionEditorProps> = ({
       }
     };
 
+    document.addEventListener('mousemove', handleDocumentMouseMove);
     document.addEventListener('mouseup', handleDocumentMouseUp);
-    return () => document.removeEventListener('mouseup', handleDocumentMouseUp);
-  }, []);
+    return () => {
+      document.removeEventListener('mousemove', handleDocumentMouseMove);
+      document.removeEventListener('mouseup', handleDocumentMouseUp);
+    };
+  }, [page.blocks, getAllBlockIdsInOrder, getBlockIdAtY]);
 
   // Close batch popover when clicking outside
   useEffect(() => {
@@ -1623,8 +1733,13 @@ export const NotionEditor: React.FC<NotionEditorProps> = ({
   };
 
   // Keyboard shortcut: Alt + ArrowUp / Alt + ArrowDown to reorder active block or multi-block cluster
+  // Keyboard shortcuts: Alt+Up/Down (reorder), Shift+Up/Down (expand selection), Cmd/Ctrl+A (select all), Delete (batch delete)
   useEffect(() => {
     const handleReorderKeyDown = (e: KeyboardEvent) => {
+      const tag = (document.activeElement?.tagName || '').toLowerCase();
+      const isInput = tag === 'input' || tag === 'textarea';
+
+      // Alt + ArrowUp / ArrowDown: Reorder selected cluster or active block
       if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
         const direction = e.key === 'ArrowUp' ? 'up' : 'down';
         if (selectedBlockIds.length > 1) {
@@ -1634,24 +1749,61 @@ export const NotionEditor: React.FC<NotionEditorProps> = ({
           e.preventDefault();
           handleMoveBlock(focusedBlockId, direction);
         }
-      } else if (e.key === 'Escape' && selectedBlockIds.length > 0) {
+      } 
+      // Shift + ArrowUp / ArrowDown: Expand block selection
+      else if (e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && !isInput) {
+        const allIds = getAllBlockIdsInOrder(page.blocks);
+        if (selectedBlockIds.length === 0 && focusedBlockId) {
+          const idx = allIds.indexOf(focusedBlockId);
+          if (e.key === 'ArrowUp' && idx > 0) {
+            e.preventDefault();
+            setSelectedBlockIds([allIds[idx - 1], focusedBlockId]);
+            setAnchorBlockId(focusedBlockId);
+          } else if (e.key === 'ArrowDown' && idx !== -1 && idx < allIds.length - 1) {
+            e.preventDefault();
+            setSelectedBlockIds([focusedBlockId, allIds[idx + 1]]);
+            setAnchorBlockId(focusedBlockId);
+          }
+        } else if (selectedBlockIds.length > 0) {
+          e.preventDefault();
+          const firstId = selectedBlockIds[0];
+          const lastId = selectedBlockIds[selectedBlockIds.length - 1];
+          if (e.key === 'ArrowUp') {
+            const idx = allIds.indexOf(firstId);
+            if (idx > 0) {
+              setSelectedBlockIds([allIds[idx - 1], ...selectedBlockIds]);
+            }
+          } else {
+            const idx = allIds.indexOf(lastId);
+            if (idx !== -1 && idx < allIds.length - 1) {
+              setSelectedBlockIds([...selectedBlockIds, allIds[idx + 1]]);
+            }
+          }
+        }
+      }
+      // Cmd/Ctrl + A: Select all blocks when multi-selection is active
+      else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a' && !isInput && selectedBlockIds.length > 0) {
+        e.preventDefault();
+        const allIds = getAllBlockIdsInOrder(page.blocks);
+        setSelectedBlockIds(allIds);
+      }
+      // Escape: Deselect all
+      else if (e.key === 'Escape' && selectedBlockIds.length > 0) {
         e.preventDefault();
         setSelectedBlockIds([]);
-      } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedBlockIds.length > 0) {
-        const tag = (document.activeElement?.tagName || '').toLowerCase();
-        if (tag !== 'input' && tag !== 'textarea') {
-          // If no collapsed cursor inside active contentEditable, batch delete
-          const sel = window.getSelection();
-          if (!sel || sel.isCollapsed) {
-            e.preventDefault();
-            handleBatchDelete();
-          }
+      } 
+      // Delete / Backspace: Batch delete
+      else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedBlockIds.length > 0 && !isInput) {
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed) {
+          e.preventDefault();
+          handleBatchDelete();
         }
       }
     };
     window.addEventListener('keydown', handleReorderKeyDown);
     return () => window.removeEventListener('keydown', handleReorderKeyDown);
-  }, [focusedBlockId, selectedBlockIds, page.blocks, handleBatchMove, handleBatchDelete]);
+  }, [focusedBlockId, selectedBlockIds, page.blocks, handleBatchMove, handleBatchDelete, getAllBlockIdsInOrder, handleMoveBlock]);
 
   // Group numbering calculation for consecutive numbered blocks
   let numberedCounter = 0;
@@ -1660,7 +1812,6 @@ export const NotionEditor: React.FC<NotionEditorProps> = ({
     <div 
       className="editor-container" 
       ref={editorContainerRef}
-      onMouseUp={handleEditorMouseUp}
       onMouseDown={handleEditorMouseDown}
     >
       {/* Cover Banner */}
@@ -1968,17 +2119,39 @@ export const NotionEditor: React.FC<NotionEditorProps> = ({
             const dropPosition = isTarget ? dropTarget.position : null;
             const hasChildren = Boolean(block.children && block.children.length > 0);
             const isOpen = block.toggleMeta?.isOpen !== false;
+            const isSelected = selectedBlockIds.includes(block.id);
+            const isCluster = isSelected && selectedBlockIds.length > 1;
 
             return (
               <div key={block.id} className="block-tree-node">
                 <div
-                  className={`block-draggable-wrapper ${isDragging ? 'is-dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''} ${depth > 0 ? 'is-child-block' : ''}`}
+                  data-block-id={block.id}
+                  className={`block-draggable-wrapper ${isSelected ? 'is-selected' : ''} ${isDragging ? 'is-dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''} ${depth > 0 ? 'is-child-block' : ''}`}
+                  draggable={isCluster}
+                  onDragStart={(e) => {
+                    if (isCluster) {
+                      const target = e.target as HTMLElement;
+                      if (target.closest('button') || target.closest('input')) return;
+                      handleDragStart(e, block.id);
+                    }
+                  }}
                   onDragOver={(e) => handleDragOver(e, block.id)}
                   onDragLeave={handleDragLeave}
                   onDrop={(e) => handleDrop(e, block.id)}
                 >
                   {/* Left Gutter: Drag Handle, Toggle Caret, and Reorder Controls */}
-                  <div className="block-drag-gutter">
+                  <div 
+                    className="block-drag-gutter"
+                    onClick={(e) => {
+                      if (e.shiftKey) {
+                        e.stopPropagation();
+                        handleRangeSelect(block.id);
+                      } else if (e.metaKey || e.ctrlKey) {
+                        e.stopPropagation();
+                        handleToggleSelect(block.id);
+                      }
+                    }}
+                  >
                     {hasChildren && block.type !== 'toggle' ? (
                       <button
                         type="button"
@@ -2009,10 +2182,16 @@ export const NotionEditor: React.FC<NotionEditorProps> = ({
                       onDragEnd={handleDragEnd}
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleOpenBlockMenu(block.id, e.currentTarget);
+                        if (e.shiftKey) {
+                          handleRangeSelect(block.id);
+                        } else if (e.metaKey || e.ctrlKey) {
+                          handleToggleSelect(block.id);
+                        } else {
+                          handleOpenBlockMenu(block.id, e.currentTarget);
+                        }
                       }}
                       className="block-grip-handle"
-                      title={isEn ? "Click for menu • Drag onto another block to nest as sub-item" : "Click menu • Kéo vào giữa block khác để gộp làm con"}
+                      title={isEn ? "Click for menu • Shift+Click to select • Drag to move" : "Bấm để mở menu • Shift+Click để chọn • Kéo để di chuyển"}
                     >
                       <GripVertical size={14} />
                     </div>
@@ -2029,7 +2208,25 @@ export const NotionEditor: React.FC<NotionEditorProps> = ({
                   </div>
 
                   {/* Block Content */}
-                  <div className="block-content-area" onClick={() => setFocusedBlockId(block.id)}>
+                  <div 
+                    className="block-content-area" 
+                    onClick={(e) => {
+                      if (e.shiftKey) {
+                        e.stopPropagation();
+                        handleRangeSelect(block.id);
+                        return;
+                      }
+                      if (e.metaKey || e.ctrlKey) {
+                        e.stopPropagation();
+                        handleToggleSelect(block.id);
+                        return;
+                      }
+                      if (selectedBlockIds.length > 0 && !isCrossBlockSelectingRef.current) {
+                        setSelectedBlockIds([]);
+                      }
+                      setFocusedBlockId(block.id);
+                    }}
+                  >
                     <BlockItem
                       block={block}
                       indexInGroup={indexInGroup}
@@ -2129,6 +2326,118 @@ export const NotionEditor: React.FC<NotionEditorProps> = ({
             />
           );
         })()}
+
+        {/* Floating Batch Selection Toolbar */}
+        {selectedBlockIds.length > 0 && (
+          <div className="batch-selection-toolbar" ref={batchToolbarRef}>
+            <div className="batch-toolbar-count">
+              <Layers size={13} />
+              <span>
+                {selectedBlockIds.length}{' '}
+                {isEn
+                  ? selectedBlockIds.length > 1 ? 'blocks selected' : 'block selected'
+                  : 'block đã chọn'}
+              </span>
+            </div>
+
+            <div className="batch-toolbar-divider" />
+
+            <button
+              type="button"
+              className="batch-toolbar-btn"
+              onClick={() => handleBatchMove('up')}
+              title={isEn ? "Move up (Alt+↑)" : "Di chuyển lên (Alt+↑)"}
+            >
+              <ChevronUp size={14} />
+              <span>{isEn ? "Move up" : "Lên"}</span>
+            </button>
+
+            <button
+              type="button"
+              className="batch-toolbar-btn"
+              onClick={() => handleBatchMove('down')}
+              title={isEn ? "Move down (Alt+↓)" : "Di chuyển xuống (Alt+↓)"}
+            >
+              <ChevronDown size={14} />
+              <span>{isEn ? "Move down" : "Xuống"}</span>
+            </button>
+
+            <div className="batch-toolbar-divider" />
+
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className="batch-toolbar-btn"
+                onClick={() => setIsBatchTurnIntoOpen((prev) => !prev)}
+                title={isEn ? "Turn into..." : "Chuyển đổi thành..."}
+              >
+                <Type size={14} />
+                <span>{isEn ? "Turn into" : "Chuyển thành"}</span>
+                <ChevronDown size={12} style={{ opacity: 0.7 }} />
+              </button>
+
+              {isBatchTurnIntoOpen && (
+                <div className="batch-toolbar-popover">
+                  {TURN_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.type}
+                      type="button"
+                      className="batch-popover-item"
+                      onClick={() => handleBatchTurnInto(opt.type)}
+                    >
+                      {opt.icon}
+                      <span>{isEn ? opt.labelEn : opt.labelVi}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              className="batch-toolbar-btn"
+              onClick={handleBatchDuplicate}
+              title={isEn ? "Duplicate" : "Nhân bản"}
+            >
+              <Copy size={14} />
+              <span>{isEn ? "Duplicate" : "Nhân bản"}</span>
+            </button>
+
+            <div className="batch-toolbar-divider" />
+
+            <button
+              type="button"
+              className="batch-toolbar-btn danger"
+              onClick={handleBatchDelete}
+              title={isEn ? "Delete (Delete/Backspace)" : "Xóa (Delete/Backspace)"}
+            >
+              <Trash2 size={14} />
+              <span>{isEn ? "Delete" : "Xóa"}</span>
+            </button>
+
+            <button
+              type="button"
+              className="batch-toolbar-close"
+              onClick={() => setSelectedBlockIds([])}
+              title={isEn ? "Deselect (Esc)" : "Bỏ chọn (Esc)"}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
+        {/* Marquee Selection Box */}
+        {marqueeBox && (
+          <div
+            className="batch-selection-marquee"
+            style={{
+              left: Math.min(marqueeBox.startX, marqueeBox.currentX),
+              top: Math.min(marqueeBox.startY, marqueeBox.currentY),
+              width: Math.abs(marqueeBox.currentX - marqueeBox.startX),
+              height: Math.abs(marqueeBox.currentY - marqueeBox.startY),
+            }}
+          />
+        )}
 
         {/* Sleek Notion-style Bottom Action Bar */}
         <div className="editor-bottom-bar">

@@ -5,6 +5,7 @@ import { TutorialModal } from './TutorialModal';
 import { ThemePickerModal } from './ThemePickerModal';
 import { TodoListWidget } from './TodoListWidget';
 import { StickyNotesWidget } from './StickyNotesWidget';
+import { QuickTipsWidget } from './QuickTipsWidget';
 import { 
   BookOpen, 
   Code2, 
@@ -302,6 +303,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <TodoListWidget lang={lang} />
         <StickyNotesWidget lang={lang} />
       </div>
+
+      {/* Quick Tips & Shortcuts Deck */}
+      <QuickTipsWidget lang={lang} />
 
       {/* Filter & Sort Section */}
       <div className="filter-section">

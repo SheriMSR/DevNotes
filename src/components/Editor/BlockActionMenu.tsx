@@ -35,7 +35,7 @@ export interface BlockActionMenuProps {
   onClose: () => void;
 }
 
-interface TurnOption {
+export interface TurnOption {
   type: BlockType;
   labelEn: string;
   labelVi: string;
@@ -43,7 +43,7 @@ interface TurnOption {
   badge?: string;
 }
 
-const TURN_OPTIONS: TurnOption[] = [
+export const TURN_OPTIONS: TurnOption[] = [
   {
     type: 'text',
     labelEn: 'Text',

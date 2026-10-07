@@ -1,4 +1,4 @@
-import type { Page, Snippet, FlashcardItem, AccentColor, AppLanguage, BackgroundTheme, LearningActivity, AppViewMode, LanguageId, DashboardTodo, StickyNote } from '../types';
+import type { Page, Snippet, FlashcardItem, AccentColor, AppLanguage, BackgroundTheme, LearningActivity, AppViewMode, LanguageId, DashboardTodo, StickyNote, QuickTip } from '../types';
 
 const STORAGE_KEYS = {
   PAGES: 'devnotes_pages_v1',
@@ -16,6 +16,7 @@ const STORAGE_KEYS = {
   STUDIO_LANG: 'devnotes_studio_lang_v1',
   DASHBOARD_TODOS: 'devnotes_dashboard_todos_v1',
   DASHBOARD_STICKIES: 'devnotes_dashboard_stickies_v1',
+  QUICK_TIPS: 'devnotes_quick_tips_v1',
 };
 
 export const INITIAL_PAGES: Page[] = [
@@ -622,4 +623,105 @@ export function saveStickyNotes(stickies: StickyNote[]): void {
     console.error('Failed to save sticky notes:', err);
   }
 }
+
+export const INITIAL_QUICK_TIPS: QuickTip[] = [
+  {
+    id: 'tip-1',
+    title: 'Chụp vùng màn hình lưu thẳng vào Clipboard',
+    category: 'mac',
+    shortcut: '⌘ + ⌃ + ⇧ + 4',
+    description: 'Chụp ảnh màn hình vùng chọn và lưu trực tiếp vào bộ nhớ tạm (Clipboard), sau đó chỉ cần nhấn ⌘V để dán ngay vào DevNotes hoặc khung chat mà không làm rác Desktop.',
+    isPinned: true,
+    color: 'sky',
+    createdAt: Date.now() - 3600000 * 5,
+  },
+  {
+    id: 'tip-2',
+    title: 'Chụp ảnh một cửa sổ ứng dụng (có bóng viền mờ)',
+    category: 'mac',
+    shortcut: '⌘ + ⇧ + 4 + Space',
+    description: 'Nhấn tổ hợp phím rồi bấm phím Cách (Spacebar), con trỏ biến thành icon máy ảnh để click chụp riêng 1 cửa sổ với viền đổ bóng macOS cực đẹp.',
+    isPinned: true,
+    color: 'indigo',
+    createdAt: Date.now() - 3600000 * 4,
+  },
+  {
+    id: 'tip-3',
+    title: 'In dữ liệu dạng bảng trong Console (DevTools)',
+    category: 'code',
+    shortcut: 'console.table(data)',
+    description: 'Thay vì dùng console.log in ra object rối rắm, dùng console.table() để hiển thị mảng hoặc object thành bảng trực quan với đầy đủ cột và hàng.',
+    isPinned: true,
+    color: 'emerald',
+    createdAt: Date.now() - 3600000 * 3,
+  },
+  {
+    id: 'tip-4',
+    title: 'Hủy commit gần nhất nhưng vẫn giữ nguyên code',
+    category: 'git',
+    shortcut: 'git reset --soft HEAD~1',
+    description: 'Rút lại commit vừa tạo nhưng toàn bộ thay đổi vẫn nằm an toàn trong Staging Area để bạn sửa lại commit message hoặc bổ sung thêm file.',
+    isPinned: true,
+    color: 'amber',
+    createdAt: Date.now() - 3600000 * 2,
+  },
+  {
+    id: 'tip-5',
+    title: 'Tô đen & di chuyển nhiều block cùng lúc trong DevNotes',
+    category: 'devnotes',
+    shortcut: 'Kéo chuột qua các block hoặc Shift+Click',
+    description: 'Nhấn giữ chuột quét qua các block để tô đen nhiều block, sau đó nắm kéo icon 6 chấm hoặc nhấn Alt+↑ / Alt+↓ để dời cả cụm đến vị trí mới!',
+    isPinned: true,
+    color: 'purple',
+    createdAt: Date.now() - 3600000 * 1,
+  },
+  {
+    id: 'tip-6',
+    title: 'Tạm cất toàn bộ code dang dở (kể cả file mới tạo)',
+    category: 'git',
+    shortcut: 'git stash -u',
+    description: 'Tham số -u (untracked) giúp cất cả các file mới chưa được add vào git, đảm bảo thư mục làm việc hoàn toàn sạch để chuyển nhánh.',
+    isPinned: false,
+    color: 'rose',
+    createdAt: Date.now() - 3600000 * 0.8,
+  },
+  {
+    id: 'tip-7',
+    title: 'Format toàn bộ file code theo chuẩn trong VS Code',
+    category: 'code',
+    shortcut: '⇧ + ⌥ + F',
+    description: 'Tự động thụt đầu dòng, căn chỉnh dấu phẩy và làm đẹp toàn bộ file theo quy chuẩn Prettier / linter của dự án chỉ với một phím tắt.',
+    isPinned: false,
+    color: 'emerald',
+    createdAt: Date.now() - 3600000 * 0.5,
+  },
+  {
+    id: 'tip-8',
+    title: 'Buộc thoát ứng dụng bị treo trên Mac (Force Quit)',
+    category: 'mac',
+    shortcut: '⌥ + ⌘ + Esc',
+    description: 'Mở cửa sổ Force Quit Applications ngay lập tức khi một phần mềm bị quay đĩa hoặc không phản hồi.',
+    isPinned: false,
+    color: 'rose',
+    createdAt: Date.now() - 3600000 * 0.2,
+  },
+];
+
+export function loadQuickTips(): QuickTip[] {
+  try {
+    const data = localStorage.getItem(STORAGE_KEYS.QUICK_TIPS);
+    return data ? JSON.parse(data) : INITIAL_QUICK_TIPS;
+  } catch {
+    return INITIAL_QUICK_TIPS;
+  }
+}
+
+export function saveQuickTips(tips: QuickTip[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.QUICK_TIPS, JSON.stringify(tips));
+  } catch (err) {
+    console.error('Failed to save quick tips:', err);
+  }
+}
+
 

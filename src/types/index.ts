@@ -150,3 +150,17 @@ export interface StickyNote {
   createdAt: number;
 }
 
+export type QuickTipColor = 'indigo' | 'emerald' | 'amber' | 'rose' | 'sky' | 'purple';
+
+export interface QuickTip {
+  id: string;
+  title: string;
+  category: string;
+  shortcut?: string;
+  description: string;
+  isPinned?: boolean;
+  color?: QuickTipColor;
+  createdAt: number;
+}
+
+
