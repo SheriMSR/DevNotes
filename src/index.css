@@ -3603,8 +3603,9 @@ input, textarea, select {
   align-items: center;
   justify-content: center;
   min-width: 22px;
-  height: 22px;
-  padding: 0 6px;
+  min-height: 22px;
+  height: auto;
+  padding: 2px 7px;
   font-size: 0.74rem;
   font-weight: 700;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, monospace;
@@ -3615,6 +3616,19 @@ input, textarea, select {
   border-radius: 5px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);
   user-select: none;
+  white-space: nowrap;
+}
+
+.quick-tip-desc-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--primary);
+  background: var(--primary-light, rgba(99, 102, 241, 0.12));
+  padding: 3px 9px;
+  border-radius: 6px;
+  max-width: 100%;
 }
 
 [data-theme='light'] .quick-tip-kbd,
@@ -5668,4 +5682,145 @@ input, textarea, select {
 [data-bg='sepia'] .batch-selection-marquee {
   border-color: rgba(180, 83, 9, 0.75);
   background: rgba(180, 83, 9, 0.15);
+}
+
+/* Quick Tips Modal Mac Key Helper & Recording */
+.btn-shortcut-record {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--bg-surface-hover, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--border-medium, rgba(255, 255, 255, 0.14));
+  color: var(--text-primary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-shortcut-record:hover {
+  background: var(--primary-light, rgba(99, 102, 241, 0.15));
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.btn-shortcut-record.recording {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: #ef4444;
+  color: #ef4444;
+  animation: pulseRecording 1.2s infinite ease-in-out;
+}
+
+@keyframes pulseRecording {
+  0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  70% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+.form-input.is-recording-input {
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2) !important;
+  background: rgba(239, 68, 68, 0.04) !important;
+}
+
+.btn-shortcut-util {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.btn-shortcut-util:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.mac-keys-quick-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: var(--bg-surface-active, rgba(255, 255, 255, 0.03));
+  border: 1px dashed var(--border-medium, rgba(255, 255, 255, 0.14));
+  border-radius: var(--radius-sm);
+}
+
+.mac-keys-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.mac-keys-list {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.btn-mac-key-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-surface, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--border-medium, rgba(255, 255, 255, 0.16));
+  border-bottom: 2px solid var(--border-medium, rgba(255, 255, 255, 0.26));
+  color: var(--text-primary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, monospace;
+  padding: 2px 7px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  user-select: none;
+}
+
+.btn-mac-key-pill:hover {
+  background: var(--primary-light, rgba(99, 102, 241, 0.2));
+  border-color: var(--primary);
+  color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.btn-mac-key-pill:active {
+  transform: translateY(1px);
+}
+
+.quick-tip-live-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.live-preview-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.live-preview-content {
+  display: flex;
+  align-items: center;
 }

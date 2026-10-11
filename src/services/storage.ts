@@ -669,8 +669,8 @@ export const INITIAL_QUICK_TIPS: QuickTip[] = [
     id: 'tip-5',
     title: 'Tô đen & di chuyển nhiều block cùng lúc trong DevNotes',
     category: 'devnotes',
-    shortcut: 'Kéo chuột qua các block hoặc Shift+Click',
-    description: 'Nhấn giữ chuột quét qua các block để tô đen nhiều block, sau đó nắm kéo icon 6 chấm hoặc nhấn Alt+↑ / Alt+↓ để dời cả cụm đến vị trí mới!',
+    shortcut: 'Shift + Click',
+    description: 'Quét chuột qua các block (hoặc giữ Shift + Click 6 chấm) để chọn nhiều block. Nắm kéo 6 chấm hoặc dùng Alt+↑ / Alt+↓ để dời cả cụm!',
     isPinned: true,
     color: 'purple',
     createdAt: Date.now() - 3600000 * 1,
@@ -710,7 +710,18 @@ export const INITIAL_QUICK_TIPS: QuickTip[] = [
 export function loadQuickTips(): QuickTip[] {
   try {
     const data = localStorage.getItem(STORAGE_KEYS.QUICK_TIPS);
-    return data ? JSON.parse(data) : INITIAL_QUICK_TIPS;
+    if (!data) return INITIAL_QUICK_TIPS;
+    const tips: QuickTip[] = JSON.parse(data);
+    return tips.map((t) => {
+      if (t.id === 'tip-5' && t.shortcut && t.shortcut.includes('Kéo chuột qua các block')) {
+        return {
+          ...t,
+          shortcut: 'Shift + Click',
+          description: 'Quét chuột qua các block (hoặc giữ Shift + Click 6 chấm) để chọn nhiều block. Nắm kéo 6 chấm hoặc dùng Alt+↑ / Alt+↓ để dời cả cụm!',
+        };
+      }
+      return t;
+    });
   } catch {
     return INITIAL_QUICK_TIPS;
   }

@@ -19,7 +19,8 @@ import {
   X,
   Apple,
   GitBranch,
-  Layers
+  Layers,
+  Keyboard
 } from 'lucide-react';
 
 interface QuickTipsWidgetProps {
@@ -98,6 +99,21 @@ const COLOR_ACCENTS: Record<QuickTipColor, { border: string; glow: string; badge
   },
 };
 
+const MAC_KEYS_HELPER = [
+  { label: '⌘ Cmd', symbol: '⌘' },
+  { label: '⌥ Opt', symbol: '⌥' },
+  { label: '⇧ Shift', symbol: '⇧' },
+  { label: '⌃ Ctrl', symbol: '⌃' },
+  { label: 'Space', symbol: 'Space' },
+  { label: 'Esc', symbol: 'Esc' },
+  { label: 'Return ⏎', symbol: 'Return' },
+  { label: 'Tab ⇥', symbol: 'Tab' },
+  { label: '↑', symbol: '↑' },
+  { label: '↓', symbol: '↓' },
+  { label: '←', symbol: '←' },
+  { label: '→', symbol: '→' },
+];
+
 export const QuickTipsWidget: React.FC<QuickTipsWidgetProps> = ({ lang }) => {
   const isEn = lang === 'en';
   const [tips, setTips] = useState<QuickTip[]>(() => loadQuickTips());
@@ -121,6 +137,59 @@ export const QuickTipsWidget: React.FC<QuickTipsWidgetProps> = ({ lang }) => {
   const [formDescription, setFormDescription] = useState('');
   const [formColor, setFormColor] = useState<QuickTipColor>('sky');
   const [formIsPinned, setFormIsPinned] = useState(false);
+  const [isRecordingShortcut, setIsRecordingShortcut] = useState(false);
+
+  const appendKeyToShortcut = (keySymbol: string) => {
+    setFormShortcut((prev) => {
+      const trimmed = prev.trim();
+      if (!trimmed) return keySymbol;
+      if (trimmed.endsWith('+')) return trimmed + ' ' + keySymbol;
+      return trimmed + ' + ' + keySymbol;
+    });
+  };
+
+  const handleShortcutKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!isRecordingShortcut) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (e.key === 'Escape') {
+      setIsRecordingShortcut(false);
+      return;
+    }
+
+    if (e.key === 'Backspace' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+      setFormShortcut('');
+      return;
+    }
+
+    const parts: string[] = [];
+    if (e.ctrlKey) parts.push('⌃');
+    if (e.altKey) parts.push('⌥');
+    if (e.shiftKey) parts.push('⇧');
+    if (e.metaKey) parts.push('⌘');
+
+    const key = e.key;
+    if (!['Control', 'Alt', 'Shift', 'Meta'].includes(key)) {
+      let keyLabel = key;
+      if (key === ' ') keyLabel = 'Space';
+      else if (key === 'ArrowUp') keyLabel = '↑';
+      else if (key === 'ArrowDown') keyLabel = '↓';
+      else if (key === 'ArrowLeft') keyLabel = '←';
+      else if (key === 'ArrowRight') keyLabel = '→';
+      else if (key === 'Enter') keyLabel = 'Return';
+      else if (key === 'Tab') keyLabel = 'Tab';
+      else if (key === 'Backspace') keyLabel = 'Delete';
+      else if (key.length === 1) keyLabel = key.toUpperCase();
+
+      parts.push(keyLabel);
+      setIsRecordingShortcut(false);
+    }
+
+    if (parts.length > 0) {
+      setFormShortcut(parts.join(' + '));
+    }
+  };
 
   // Copy feedback state
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -201,6 +270,7 @@ export const QuickTipsWidget: React.FC<QuickTipsWidgetProps> = ({ lang }) => {
     setFormDescription('');
     setFormColor('sky');
     setFormIsPinned(false);
+    setIsRecordingShortcut(false);
     setIsModalOpen(true);
   };
 
@@ -218,6 +288,7 @@ export const QuickTipsWidget: React.FC<QuickTipsWidgetProps> = ({ lang }) => {
     setFormDescription(tip.description);
     setFormColor(tip.color || 'sky');
     setFormIsPinned(Boolean(tip.isPinned));
+    setIsRecordingShortcut(false);
     setIsModalOpen(true);
   };
 
@@ -267,30 +338,49 @@ export const QuickTipsWidget: React.FC<QuickTipsWidgetProps> = ({ lang }) => {
   const renderShortcutDisplay = (shortcut: string) => {
     if (!shortcut) return null;
 
-    // Check if it's key combinations (contains + or has modifier symbols)
-    const hasKeys = shortcut.includes('+') || /[⌘⌥⇧⌃]/.test(shortcut);
+    // Code command / CLI / syntax snippet
+    const isCommand = 
+      shortcut.startsWith('git') || 
+      shortcut.startsWith('npm') || 
+      shortcut.startsWith('docker') || 
+      shortcut.startsWith('npx') || 
+      shortcut.startsWith('brew') || 
+      shortcut.includes('(');
 
-    if (hasKeys) {
-      const keys = shortcut.split('+').map((k) => k.trim());
+    if (isCommand) {
       return (
-        <div className="quick-tip-keycaps">
-          {keys.map((k, idx) => (
-            <React.Fragment key={idx}>
-              <kbd className="quick-tip-kbd">{k}</kbd>
-              {idx < keys.length - 1 && <span className="quick-tip-key-plus">+</span>}
-            </React.Fragment>
-          ))}
+        <div className="quick-tip-command-badge">
+          <Terminal size={12} className="command-terminal-icon" />
+          <code>{shortcut}</code>
         </div>
       );
     }
 
-    // Code command / CLI / syntax snippet
-    const isCommand = shortcut.startsWith('git') || shortcut.startsWith('npm') || shortcut.startsWith('docker') || shortcut.includes('(');
+    // Check if it's key combinations (contains + or has modifier symbols)
+    const hasKeys = shortcut.includes('+') || /[⌘⌥⇧⌃]/.test(shortcut);
+
+    if (hasKeys) {
+      const keys = shortcut.split('+').map((k) => k.trim()).filter(Boolean);
+      // Validate that all segments are compact key labels (e.g. ⌘, Shift, Click, Space, Alt)
+      const allKeysValid = keys.every((k) => k.length <= 16);
+
+      if (allKeysValid && keys.length > 0) {
+        return (
+          <div className="quick-tip-keycaps">
+            {keys.map((k, idx) => (
+              <React.Fragment key={idx}>
+                <kbd className="quick-tip-kbd">{k}</kbd>
+                {idx < keys.length - 1 && <span className="quick-tip-key-plus">+</span>}
+              </React.Fragment>
+            ))}
+          </div>
+        );
+      }
+    }
 
     return (
-      <div className="quick-tip-command-badge">
-        {isCommand && <Terminal size={12} className="command-terminal-icon" />}
-        <code>{shortcut}</code>
+      <div className="quick-tip-desc-badge">
+        <span>{shortcut}</span>
       </div>
     );
   };
@@ -630,22 +720,92 @@ export const QuickTipsWidget: React.FC<QuickTipsWidgetProps> = ({ lang }) => {
                 </div>
               </div>
 
-              {/* Shortcut or Command */}
+              {/* Shortcut or Command with Mac Keypad & Live Recording */}
               <div className="form-group">
-                <label className="form-label">
-                  {isEn ? "Shortcut / Code Command (Optional)" : "Phím tắt hoặc Câu lệnh (Tùy chọn)"}
-                </label>
-                <input
-                  type="text"
-                  className="form-input font-mono"
-                  placeholder={isEn ? "e.g. ⌘ + Shift + 4  or  git reset --soft HEAD~1" : "Ví dụ: ⌘ + Shift + 4  hoặc  git stash pop  hoặc  console.table(data)"}
-                  value={formShortcut}
-                  onChange={(e) => setFormShortcut(e.target.value)}
-                />
-                <span className="form-hint">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+                  <label className="form-label" style={{ margin: 0 }}>
+                    {isEn ? "Shortcut / Code Command (Optional)" : "Phím tắt hoặc Câu lệnh (Tùy chọn)"}
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {formShortcut && (
+                      <button
+                        type="button"
+                        className="btn-shortcut-util"
+                        onClick={() => setFormShortcut('')}
+                        title={isEn ? "Clear shortcut" : "Xóa phím tắt"}
+                      >
+                        <X size={11} />
+                        <span>{isEn ? "Clear" : "Xóa"}</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className={`btn-shortcut-record ${isRecordingShortcut ? "recording" : ""}`}
+                      onClick={() => setIsRecordingShortcut((prev) => !prev)}
+                      title={isEn ? "Press shortcut on physical keyboard" : "Nhấn tổ hợp phím trên bàn phím để tự động ghi"}
+                    >
+                      <Keyboard size={12} />
+                      <span>
+                        {isRecordingShortcut
+                          ? (isEn ? "Press keys now..." : "Đang chờ nhấn phím...")
+                          : (isEn ? "Record keys" : "Bắt phím trực tiếp")}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="text"
+                    className={`form-input font-mono ${isRecordingShortcut ? "is-recording-input" : ""}`}
+                    placeholder={
+                      isRecordingShortcut
+                        ? (isEn ? "Press combination (e.g. Cmd+Shift+4)..." : "Nhấn tổ hợp phím (ví dụ: Cmd + Shift + 4)... (Bấm Esc để hủy)")
+                        : (isEn ? "e.g. ⌘ + Shift + 4  or  git stash pop" : "Ví dụ: ⌘ + Shift + 4  hoặc  git stash pop")
+                    }
+                    value={formShortcut}
+                    onChange={(e) => setFormShortcut(e.target.value)}
+                    onKeyDown={handleShortcutKeyDown}
+                  />
+                </div>
+
+                {/* Mac Key Helper Bar */}
+                <div className="mac-keys-quick-bar">
+                  <span className="mac-keys-label">
+                    <Apple size={11} />
+                    <span>{isEn ? "Insert Mac keys:" : "Chèn phím Mac:"}</span>
+                  </span>
+                  <div className="mac-keys-list">
+                    {MAC_KEYS_HELPER.map((k) => (
+                      <button
+                        key={k.label}
+                        type="button"
+                        className="btn-mac-key-pill"
+                        onClick={() => appendKeyToShortcut(k.symbol)}
+                        title={isEn ? `Add ${k.label}` : `Chèn phím ${k.label}`}
+                      >
+                        {k.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Live Keycaps Preview */}
+                {formShortcut.trim() && (
+                  <div className="quick-tip-live-preview">
+                    <span className="live-preview-label">
+                      {isEn ? "Preview:" : "Xem trước:"}
+                    </span>
+                    <div className="live-preview-content">
+                      {renderShortcutDisplay(formShortcut.trim())}
+                    </div>
+                  </div>
+                )}
+
+                <span className="form-hint" style={{ marginTop: 3 }}>
                   {isEn 
-                    ? "Tip: Use '+' between keys (e.g. ⌘ + ⇧ + 4) to display stylish Mac keycaps!" 
-                    : "Mẹo: Dùng dấu '+' giữa các phím (như ⌘ + ⇧ + 4) để hiển thị phím bấm macOS cực đẹp!"}
+                    ? "Click the key buttons above or turn on 'Record keys' to press directly on your keyboard!" 
+                    : "Bấm các nút phím Mac ở trên để chèn nhanh, hoặc bấm 'Bắt phím trực tiếp' rồi ấn tổ hợp phím trên bàn phím!"}
                 </span>
               </div>
 
